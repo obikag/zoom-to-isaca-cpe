@@ -5,11 +5,14 @@ A command-line tool that processes Zoom attendance and registration reports to g
 ## How It Works
 
 1. Reads a Zoom participants CSV and a Zoom registration CSV from the current directory
-2. Merges attendance data with registrant details by email address
-3. Filters out attendees who were present for less than 50 minutes
-4. Auto-detects the ISACA member ID column from the registration file
-5. Calculates CPE hours earned (1 CPE per 50 minutes attended)
-6. Outputs an internal attendance report and an ISACA-ready upload file
+2. Dynamically detects the header row in each file to handle Zoom export format changes
+3. Merges attendance data with registrant details by email address
+4. Sums duration across multiple rows for attendees who rejoined the session
+5. Filters out attendees who were present for less than the minimum duration (default: 50 minutes)
+6. Auto-detects the ISACA member ID column from the registration file
+7. Filters out registrants with missing or non-numeric ISACA member IDs
+8. Calculates CPE hours earned by flooring total minutes to the nearest duration block (e.g. 90 min => 1 CPE)
+9. Outputs an internal attendance report and an ISACA-ready upload file
 
 ## Requirements
 
@@ -32,6 +35,8 @@ If multiple files match either pattern, the script uses the last one alphabetica
 
 ## Usage
 
+### Run directly
+
 ```
 python zoom_cpe.py \
   --org "Your Organization" \
@@ -39,19 +44,39 @@ python zoom_cpe.py \
   --start "MM/DD/YYYY" \
   --end "MM/DD/YYYY" \
   --activity "IPROED" \
-  --method "ONLINE"
+  --method "ONLINE" \
+  --output-dir "./output"
+```
+
+### Install as a CLI tool
+
+```
+pip install .
+zoom-cpe --org "Your Organization" \
+         --event "Event Name" \
+         --start "MM/DD/YYYY" \
+         --end "MM/DD/YYYY" \
+         --activity "IPROED" \
+         --method "ONLINE" \
+         --output-dir "/path/to/output" \
+         --participants "/path/to/participants.csv" \
+         --registration "/path/to/registration.csv"
 ```
 
 ### Arguments
 
-| Argument | Description | Example |
-|---|---|---|
-| `--org` | Sponsoring organization name | `"ISACA Chicago"` |
-| `--event` | Event name | `"Annual Conference 2025"` |
-| `--start` | Event start date | `"01/15/2025"` |
-| `--end` | Event end date | `"01/15/2025"` |
-| `--activity` | ISACA qualifying activity code | `"IPROED"`, `"PROED"` |
-| `--method` | Method of delivery | `"ONLINE"`, `"INPERSON"` |
+| Argument | Description | Required | Example |
+|---|---|---|---|
+| `--org` | Sponsoring organization name | Yes | `"ISACA Chicago"` |
+| `--event` | Event name | Yes | `"Annual Conference 2025"` |
+| `--start` | Event start date | Yes | `"01/15/2025"` |
+| `--end` | Event end date (must be >= start) | Yes | `"01/15/2025"` |
+| `--activity` | ISACA qualifying activity code | Yes | `"IPROED"`, `"PROED"` |
+| `--method` | Method of delivery | Yes | `"ONLINE"`, `"INPERSON"` |
+| `--output-dir` | Directory to write output files to | Yes | `"./output"` |
+| `--participants` | Path to participants CSV | No | `"~/downloads/participants.csv"` |
+| `--registration` | Path to registration CSV | No | `"~/downloads/registration.csv"` |
+| `--min-duration` | Minimum minutes to qualify for CPE | No | `50` (default) |
 
 ## Output Files
 
@@ -87,6 +112,7 @@ chmod +x run_tests.sh
 ```
 zoom-to-isaca-cpe/
 ├── zoom_cpe.py               # Main script
+├── pyproject.toml            # Installable package configuration
 ├── requirements.txt          # Python dependencies
 ├── run_tests.bat             # Test runner (Windows)
 ├── run_tests.sh              # Test runner (macOS/Linux)

@@ -1,0 +1,13 @@
+[build-system]
+requires = ["setuptools>=68"]
+build-backend = "setuptools.backends.legacy:build"
+
+[project]
+name = "zoom-to-isaca-cpe"
+version = "1.0.0"
+description = "Process Zoom attendance reports and generate ISACA CPE upload files."
+requires-python = ">=3.8"
+dependencies = ["pandas"]
+
+[project.scripts]
+zoom-cpe = "zoom_cpe:main"
