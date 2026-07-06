@@ -165,12 +165,125 @@ def test_main_exits_when_files_missing(tmp_path, monkeypatch):
             main()
 
 
+@pytest.mark.skipif(sys.platform == "win32", reason="chmod read-only not reliable on Windows")
+def test_main_exits_when_output_dir_not_writable(tmp_path, monkeypatch):
+    monkeypatch.chdir(tmp_path)
+    write_csv_files(tmp_path)
+    read_only_dir = tmp_path / "readonly"
+    read_only_dir.mkdir()
+    os.chmod(read_only_dir, 0o444)
+    with patch("sys.argv", BASE_ARGS + ["--output-dir", str(read_only_dir)]):
+        with pytest.raises(SystemExit):
+            main()
+    os.chmod(read_only_dir, 0o755)  # restore so tmp_path cleanup succeeds
+
+
 def test_main_exits_when_output_dir_missing(tmp_path, monkeypatch):
     monkeypatch.chdir(tmp_path)
     write_csv_files(tmp_path)
     with patch("sys.argv", BASE_ARGS + ["--output-dir", str(tmp_path / "nonexistent")]):
         with pytest.raises(SystemExit):
             main()
+
+
+def test_main_exits_when_participants_file_not_found(tmp_path, monkeypatch):
+    monkeypatch.chdir(tmp_path)
+    write_csv_files(tmp_path)
+    with patch("sys.argv", BASE_ARGS + [
+        "--participants", str(tmp_path / "missing.csv"),
+        "--registration", str(tmp_path / "registration_2025.csv"),
+        "--output-dir", str(tmp_path),
+    ]):
+        with pytest.raises(SystemExit):
+            main()
+
+
+@pytest.mark.skipif(sys.platform == "win32", reason="chmod read-only not reliable on Windows")
+def test_main_exits_when_participants_file_not_readable(tmp_path, monkeypatch):
+    monkeypatch.chdir(tmp_path)
+    write_csv_files(tmp_path)
+    p_file = tmp_path / "participants_2025.csv"
+    os.chmod(p_file, 0o000)
+    with patch("sys.argv", BASE_ARGS + [
+        "--participants", str(p_file),
+        "--registration", str(tmp_path / "registration_2025.csv"),
+        "--output-dir", str(tmp_path),
+    ]):
+        with pytest.raises(SystemExit):
+            main()
+    os.chmod(p_file, 0o644)
+
+
+def test_main_exits_when_header_only_csv(tmp_path, monkeypatch):
+    """A CSV with a valid header but no data rows should produce no qualifying attendees."""
+    monkeypatch.chdir(tmp_path)
+    participants = PARTICIPANTS_HEADER + "Name,Email,Duration (minutes)\n"
+    write_csv_files(tmp_path, participants=participants)
+    with patch("sys.argv", base_args(tmp_path)):
+        with pytest.raises(SystemExit) as exc:
+            main()
+    assert exc.value.code == 0
+
+
+def test_main_verbose_flag(tmp_path, monkeypatch, caplog):
+    monkeypatch.chdir(tmp_path)
+    write_csv_files(tmp_path)
+    import logging
+    with patch("sys.argv", base_args(tmp_path) + ["--verbose"]):
+        with caplog.at_level(logging.DEBUG):
+            main()
+
+
+def test_main_quiet_suppresses_info(tmp_path, monkeypatch, caplog):
+    monkeypatch.chdir(tmp_path)
+    write_csv_files(tmp_path)
+    import logging
+    with patch("sys.argv", base_args(tmp_path) + ["--quiet"]):
+        with caplog.at_level(logging.INFO, logger="zoom_cpe"):
+            main()
+    assert not any(r.levelno == logging.INFO for r in caplog.records)
+
+
+def test_main_verbose_and_quiet_are_mutually_exclusive(tmp_path, monkeypatch):
+    monkeypatch.chdir(tmp_path)
+    write_csv_files(tmp_path)
+    with patch("sys.argv", base_args(tmp_path) + ["--verbose", "--quiet"]):
+        with pytest.raises(SystemExit):
+            main()
+
+
+def test_main_warns_and_exits_when_no_qualifying_attendees(tmp_path, monkeypatch):
+    """All attendees below min duration — no output files should be written."""
+    monkeypatch.chdir(tmp_path)
+    participants = (
+        PARTICIPANTS_HEADER
+        + "Name,Email,Duration (minutes)\n"
+        + "Alice Smith,alice@example.com,10\n"
+    )
+    write_csv_files(tmp_path, participants=participants)
+    with patch("sys.argv", base_args(tmp_path)):
+        with pytest.raises(SystemExit) as exc:
+            main()
+    assert exc.value.code == 0
+    assert not (tmp_path / "final_attendance_cpe_report.csv").exists()
+    assert not (tmp_path / "isaca_cpe_upload_ready.csv").exists()
+
+
+def test_main_warns_on_null_emails(tmp_path, monkeypatch, caplog):
+    """Participants with missing emails should trigger a warning."""
+    monkeypatch.chdir(tmp_path)
+    participants = (
+        PARTICIPANTS_HEADER
+        + "Name,Email,Duration (minutes)\n"
+        + "Alice Smith,alice@example.com,90\n"
+        + "Unknown,,60\n"
+    )
+    write_csv_files(tmp_path, participants=participants)
+    import logging
+    with patch("sys.argv", base_args(tmp_path)):
+        with caplog.at_level(logging.WARNING, logger="zoom_cpe"):
+            main()
+    assert any("missing email" in r.message for r in caplog.records)
 
 
 def test_main_explicit_input_files(tmp_path, monkeypatch):
@@ -239,7 +352,13 @@ def test_main_sums_duration_for_rejoined_attendee(tmp_path, monkeypatch):
 def test_main_exits_when_end_before_start(tmp_path, monkeypatch):
     monkeypatch.chdir(tmp_path)
     write_csv_files(tmp_path)
-    with patch("sys.argv", [*BASE_ARGS[:5], "12/31/2025", "--end", "01/01/2025", *BASE_ARGS[8:], "--output-dir", str(tmp_path)]):
+    with patch("sys.argv", [
+        "zoom_cpe.py",
+        "--org", "Test Org", "--event", "Test Event",
+        "--start", "12/31/2025", "--end", "01/01/2025",
+        "--activity", "IPROED", "--method", "ONLINE",
+        "--output-dir", str(tmp_path),
+    ]):
         with pytest.raises(SystemExit):
             main()
 

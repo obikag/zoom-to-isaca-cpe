@@ -102,15 +102,31 @@ def main():
         help="Directory where output CSV files will be written",
     )
 
+    log_group = parser.add_mutually_exclusive_group()
+    log_group.add_argument(
+        "--verbose", action="store_true", help="Enable verbose (DEBUG) logging"
+    )
+    log_group.add_argument(
+        "--quiet", action="store_true", help="Suppress all output except errors"
+    )
+
     args = parser.parse_args()
+
+    if args.verbose:
+        logging.getLogger().setLevel(logging.DEBUG)
+    elif args.quiet:
+        logging.getLogger().setLevel(logging.ERROR)
 
     if args.end < args.start:
         logger.error("--end date cannot be before --start date.")
         sys.exit(1)
 
-    # Validate output directory exists
+    # Validate output directory exists and is writable
     if not os.path.isdir(args.output_dir):
         logger.error(f"Output directory does not exist: '{args.output_dir}'")
+        sys.exit(1)
+    if not os.access(args.output_dir, os.W_OK):
+        logger.error(f"Output directory is not writable: '{args.output_dir}'")
         sys.exit(1)
 
     # Use explicit paths if provided, otherwise auto-detect from the current directory
@@ -120,6 +136,18 @@ def main():
     if not p_file or not r_file:
         logger.error("Missing required participants or registration CSV files.")
         sys.exit(1)
+
+    # Validate input files exist and are readable
+    for label, path in (("participants", p_file), ("registration", r_file)):
+        if not os.path.isfile(path):
+            logger.error(f"{label} file not found: '{path}'")
+            sys.exit(1)
+        if not os.access(path, os.R_OK):
+            logger.error(f"{label} file is not readable: '{path}'")
+            sys.exit(1)
+        size_mb = os.path.getsize(path) / (1024 * 1024)
+        if size_mb > 50:
+            logger.warning(f"{label} file is large ({size_mb:.1f} MB) and may use significant memory.")
 
     # Dynamically detect the header row to handle Zoom export format changes
     try:
@@ -175,6 +203,11 @@ def main():
     # Calculate CPE hours by flooring total minutes to the nearest 50-minute block
     # e.g. 90 min => 1 CPE, 100 min => 2 CPE
     final_df["CPE"] = (final_df["Duration (minutes)"] // args.min_duration).astype(int)
+
+    # Warn and exit if no attendees remain after filtering
+    if final_df.empty:
+        logger.warning("No qualifying attendees found after filtering. Output files will not be written.")
+        sys.exit(0)
 
     # Build and write the internal attendance report sorted by attendee name
     final_df["Report_Name"] = (

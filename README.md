@@ -1,5 +1,7 @@
 # zoom-to-isaca-cpe
 
+![CI](https://github.com/<your-username>/zoom-to-isaca-cpe/actions/workflows/ci.yml/badge.svg)
+
 A command-line tool that processes Zoom attendance and registration reports to generate ISACA CPE upload files.
 
 ## How It Works
@@ -17,6 +19,7 @@ A command-line tool that processes Zoom attendance and registration reports to g
 ## Requirements
 
 - Python 3.8+
+- pandas 1.3+
 
 ```
 pip install -r requirements.txt
@@ -31,7 +34,7 @@ Place the following Zoom export CSV files in the same directory as the script be
 | `participants*.csv` | Zoom meeting participants report (exported from Zoom) |
 | `registration*.csv` | Zoom meeting registration report (exported from Zoom) |
 
-If multiple files match either pattern, the script uses the last one alphabetically.
+If `--participants` and `--registration` are omitted, the script auto-detects files matching `participants*.csv` and `registration*.csv` in the current working directory. If multiple files match either pattern, the last one alphabetically is used.
 
 ## Usage
 
@@ -77,10 +80,12 @@ zoom-cpe --org "Your Organization" \
 | `--participants` | Path to participants CSV | No | `"~/downloads/participants.csv"` |
 | `--registration` | Path to registration CSV | No | `"~/downloads/registration.csv"` |
 | `--min-duration` | Minimum minutes to qualify for CPE | No | `50` (default) |
+| `--verbose` | Enable debug logging | No | |
+| `--quiet` | Suppress all output except errors | No | |
 
 ## Output Files
 
-Both files are written to the current directory.
+Both files are written to `--output-dir`. If no qualifying attendees remain after filtering, no output files are written and the script exits with a warning.
 
 **`final_attendance_cpe_report.csv`** — Internal attendance report sorted by name:
 
@@ -111,6 +116,9 @@ chmod +x run_tests.sh
 
 ```
 zoom-to-isaca-cpe/
+├── .github/
+│   └── workflows/
+│       └── ci.yml            # GitHub Actions CI workflow
 ├── zoom_cpe.py               # Main script
 ├── pyproject.toml            # Installable package configuration
 ├── requirements.txt          # Python dependencies
