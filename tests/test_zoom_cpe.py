@@ -24,6 +24,7 @@ from zoom_cpe import (
 
 
 def test_find_file_returns_last_sorted_match(tmp_path, monkeypatch):
+    """Returns the last file alphabetically when multiple matches exist."""
     monkeypatch.chdir(tmp_path)
     (tmp_path / "participants_2024.csv").write_text("")
     (tmp_path / "participants_2025.csv").write_text("")
@@ -31,6 +32,7 @@ def test_find_file_returns_last_sorted_match(tmp_path, monkeypatch):
 
 
 def test_find_file_returns_none_when_no_match(tmp_path, monkeypatch):
+    """Returns None when no files match the given pattern."""
     monkeypatch.chdir(tmp_path)
     assert find_file("participants*.csv") is None
 
@@ -39,12 +41,14 @@ def test_find_file_returns_none_when_no_match(tmp_path, monkeypatch):
 
 
 def test_find_header_row_detects_correct_row(tmp_path):
+    """Returns the correct row index when the header is preceded by ignored rows."""
     f = tmp_path / "test.csv"
     f.write_text("ignored\nignored\nignored\nEmail,Duration (minutes)\n")
     assert find_header_row(str(f), ["email", "duration (minutes)"]) == 3
 
 
 def test_find_header_row_raises_when_not_found(tmp_path):
+    """Raises ValueError when no row contains all required columns."""
     f = tmp_path / "test.csv"
     f.write_text("col1,col2\nval1,val2\n")
     with pytest.raises(ValueError):
@@ -55,11 +59,13 @@ def test_find_header_row_raises_when_not_found(tmp_path):
 
 
 def test_validate_date_valid():
+    """Returns a datetime object for a correctly formatted MM/DD/YYYY string."""
     from datetime import datetime
     assert validate_date("01/15/2025") == datetime(2025, 1, 15)
 
 
 def test_validate_date_invalid():
+    """Raises ArgumentTypeError when the date string is not in MM/DD/YYYY format."""
     with pytest.raises(Exception):
         validate_date("2025-01-15")
 
@@ -77,6 +83,7 @@ def test_validate_date_invalid():
     ],
 )
 def test_is_id_column(values, expected):
+    """Returns True only when more than 50% of values are purely numeric digits."""
     series = pd.Series(values, dtype=str) if values else pd.Series([], dtype=str)
     assert is_id_column(series) == expected
 
@@ -86,31 +93,34 @@ def test_is_id_column(values, expected):
 
 @pytest.mark.parametrize("value", ["0", "-1", "-100"])
 def test_validate_min_duration_rejects_non_positive(value):
+    """Raises ArgumentTypeError for zero or negative values."""
     with pytest.raises(argparse.ArgumentTypeError):
         validate_min_duration(value)
 
 
 def test_validate_min_duration_rejects_non_integer():
+    """Raises ArgumentTypeError when the value cannot be parsed as an integer."""
     with pytest.raises(argparse.ArgumentTypeError):
         validate_min_duration("abc")
 
 
 def test_validate_min_duration_accepts_positive():
+    """Returns the integer value when given a valid positive integer string."""
     assert validate_min_duration("50") == 50
 
 
 def test_validate_min_duration_default(tmp_path, monkeypatch):
-    """Omitting --min-duration should default to 50."""
+    """Omitting --min-duration defaults to 50, excluding Bob who attended only 30 minutes."""
     monkeypatch.chdir(tmp_path)
     write_csv_files(tmp_path)
     with patch("sys.argv", base_args(tmp_path)):
         main()
     report = pd.read_csv(tmp_path / "final_attendance_cpe_report.csv")
-    # Bob (30 min) should be excluded under the 50-minute default
     assert "bob@example.com" not in report["Email"].values
 
 
 def test_main_exits_on_zero_min_duration(tmp_path, monkeypatch):
+    """Exits with an error when --min-duration is set to zero."""
     monkeypatch.chdir(tmp_path)
     write_csv_files(tmp_path)
     with patch("sys.argv", base_args(tmp_path) + ["--min-duration", "0"]):
@@ -119,6 +129,7 @@ def test_main_exits_on_zero_min_duration(tmp_path, monkeypatch):
 
 
 def test_main_exits_on_negative_min_duration(tmp_path, monkeypatch):
+    """Exits with an error when --min-duration is set to a negative value."""
     monkeypatch.chdir(tmp_path)
     write_csv_files(tmp_path)
     with patch("sys.argv", base_args(tmp_path) + ["--min-duration", "-10"]):
@@ -126,8 +137,8 @@ def test_main_exits_on_negative_min_duration(tmp_path, monkeypatch):
             main()
 
 
-
-PARTICIPANTS_HEADER = "ignored\nignored\nignored\n"
+# --- main (integration) ---
+ = "ignored\nignored\nignored\n"
 REGISTRATION_HEADER = "ignored\nignored\nignored\nignored\nignored\n"
 
 PARTICIPANTS_CSV = (
