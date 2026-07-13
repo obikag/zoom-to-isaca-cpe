@@ -33,7 +33,9 @@ def find_header_row(filepath, required_columns, max_rows=10):
     ValueError if no matching header row is found."""
     for i in range(max_rows):
         df = pd.read_csv(filepath, skiprows=i, nrows=0)
-        if all(c.lower() in [col.lower() for col in df.columns] for c in required_columns):
+        if all(
+            c.lower() in [col.lower() for col in df.columns] for c in required_columns
+        ):
             return i
     raise ValueError(
         f"Could not find a header row containing {required_columns} in '{filepath}'"
@@ -85,7 +87,10 @@ def build_arg_parser():
     parser.add_argument("--org", required=True, help="Sponsoring Organization Name")
     parser.add_argument("--event", required=True, help="Event Name")
     parser.add_argument(
-        "--start", required=True, type=validate_date, help="Event Start Date (MM/DD/YYYY)"
+        "--start",
+        required=True,
+        type=validate_date,
+        help="Event Start Date (MM/DD/YYYY)",
     )
     parser.add_argument(
         "--end", required=True, type=validate_date, help="Event End Date (MM/DD/YYYY)"
@@ -183,10 +188,17 @@ def load_data(p_file, r_file):
     registration_df = pd.read_csv(r_file, skiprows=r_skip)
 
     exclude_cols = {
-        "first name", "last name", "email", "approval status",
-        "registration time", "industry", "organization",
+        "first name",
+        "last name",
+        "email",
+        "approval status",
+        "registration time",
+        "industry",
+        "organization",
     }
-    potential_cols = [c for c in registration_df.columns if c.lower() not in exclude_cols]
+    potential_cols = [
+        c for c in registration_df.columns if c.lower() not in exclude_cols
+    ]
 
     id_col_name = next(
         (col for col in potential_cols if is_id_column(registration_df[col])), None
@@ -203,12 +215,16 @@ def process(participants_df, registration_df, id_col_name, args):
     (report_df, upload_df) or exits with code 0 if no qualifying attendees remain."""
     null_emails = participants_df["Email"].isna().sum()
     if null_emails:
-        logger.warning(f"{null_emails} participant row(s) dropped due to missing email.")
+        logger.warning(
+            f"{null_emails} participant row(s) dropped due to missing email."
+        )
 
     participants_summary = (
         participants_df.groupby("Email")["Duration (minutes)"].sum().reset_index()
     )
-    participants_summary["Email"] = participants_summary["Email"].str.lower().str.strip()
+    participants_summary["Email"] = (
+        participants_summary["Email"].str.lower().str.strip()
+    )
     registration_df["Email"] = registration_df["Email"].str.lower().str.strip()
 
     merged_df = pd.merge(participants_summary, registration_df, on="Email", how="inner")
@@ -253,7 +269,9 @@ def process(participants_df, registration_df, id_col_name, args):
             "Method of Delivery": args.method,
         }
     )
-    upload_df = upload_df.sort_values(by=["LAST_NAME", "FIRST_NAME"]).reset_index(drop=True)
+    upload_df = upload_df.sort_values(by=["LAST_NAME", "FIRST_NAME"]).reset_index(
+        drop=True
+    )
 
     return report_df, upload_df
 

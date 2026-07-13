@@ -1,4 +1,5 @@
 import argparse
+import logging
 import os
 import sys
 from unittest.mock import patch
@@ -7,9 +8,18 @@ import pandas as pd
 import pytest
 
 sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), "..")))
-from zoom_cpe import (build_arg_parser, find_file, find_header_row,
-                      is_id_column, load_data, main, process, validate_args,
-                      validate_date, validate_min_duration)
+from zoom_cpe import (
+    build_arg_parser,
+    find_file,
+    find_header_row,
+    is_id_column,
+    load_data,
+    main,
+    process,
+    validate_args,
+    validate_date,
+    validate_min_duration,
+)
 
 # --- find_file ---
 
@@ -124,16 +134,24 @@ REGISTRATION_CSV = (
 
 BASE_ARGS = [
     "zoom_cpe.py",
-    "--org", "Test Org",
-    "--event", "Test Event",
-    "--start", "01/01/2025",
-    "--end", "01/01/2025",
-    "--activity", "IPROED",
-    "--method", "ONLINE",
+    "--org",
+    "Test Org",
+    "--event",
+    "Test Event",
+    "--start",
+    "01/01/2025",
+    "--end",
+    "01/01/2025",
+    "--activity",
+    "IPROED",
+    "--method",
+    "ONLINE",
 ]
 
 
-def write_csv_files(tmp_path, participants=PARTICIPANTS_CSV, registration=REGISTRATION_CSV):
+def write_csv_files(
+    tmp_path, participants=PARTICIPANTS_CSV, registration=REGISTRATION_CSV
+):
     """Writes participants and registration CSV files to tmp_path."""
     (tmp_path / "participants_2025.csv").write_text(participants)
     (tmp_path / "registration_2025.csv").write_text(registration)
@@ -185,10 +203,18 @@ def test_main_upload_file_columns(tmp_path, monkeypatch):
         main()
     upload = pd.read_csv(tmp_path / "isaca_cpe_upload_ready.csv")
     expected_cols = [
-        "ID", "EMAIL", "LAST_NAME", "FIRST_NAME",
-        "Sponsoring Organization Name", "Event Name",
-        "Date Format", "Event Start Date", "Event End Date",
-        "CPE Hours Earned", "Qualifying Activity", "Method of Delivery",
+        "ID",
+        "EMAIL",
+        "LAST_NAME",
+        "FIRST_NAME",
+        "Sponsoring Organization Name",
+        "Event Name",
+        "Date Format",
+        "Event Start Date",
+        "Event End Date",
+        "CPE Hours Earned",
+        "Qualifying Activity",
+        "Method of Delivery",
     ]
     assert list(upload.columns) == expected_cols
 
@@ -201,7 +227,9 @@ def test_main_exits_when_files_missing(tmp_path, monkeypatch):
             main()
 
 
-@pytest.mark.skipif(sys.platform == "win32", reason="chmod read-only not reliable on Windows")
+@pytest.mark.skipif(
+    sys.platform == "win32", reason="chmod read-only not reliable on Windows"
+)
 def test_main_exits_when_output_dir_not_writable(tmp_path, monkeypatch):
     """Exits with an error when the output directory is not writable."""
     monkeypatch.chdir(tmp_path)
@@ -228,37 +256,53 @@ def test_main_exits_when_participants_file_not_found(tmp_path, monkeypatch):
     """Exits with an error when the explicitly provided participants file does not exist."""
     monkeypatch.chdir(tmp_path)
     write_csv_files(tmp_path)
-    with patch("sys.argv", BASE_ARGS + [
-        "--participants", str(tmp_path / "missing.csv"),
-        "--registration", str(tmp_path / "registration_2025.csv"),
-        "--output-dir", str(tmp_path),
-    ]):
+    with patch(
+        "sys.argv",
+        BASE_ARGS
+        + [
+            "--participants",
+            str(tmp_path / "missing.csv"),
+            "--registration",
+            str(tmp_path / "registration_2025.csv"),
+            "--output-dir",
+            str(tmp_path),
+        ],
+    ):
         with pytest.raises(SystemExit):
             main()
 
 
-def test_main_warns_on_large_file(tmp_path, monkeypatch, capsys):
+def test_main_warns_on_large_file(tmp_path, monkeypatch, caplog):
     """Logs a warning when an input file exceeds 50 MB."""
     monkeypatch.chdir(tmp_path)
     write_csv_files(tmp_path)
     with patch("os.path.getsize", return_value=60 * 1024 * 1024):
         with patch("sys.argv", base_args(tmp_path)):
             main()
-    assert "large" in capsys.readouterr().out
+    assert "large" in caplog.text
 
 
-@pytest.mark.skipif(sys.platform == "win32", reason="chmod read-only not reliable on Windows")
+@pytest.mark.skipif(
+    sys.platform == "win32", reason="chmod read-only not reliable on Windows"
+)
 def test_main_exits_when_participants_file_not_readable(tmp_path, monkeypatch):
     """Exits with an error when the participants file exists but cannot be read."""
     monkeypatch.chdir(tmp_path)
     write_csv_files(tmp_path)
     p_file = tmp_path / "participants_2025.csv"
     os.chmod(p_file, 0o000)
-    with patch("sys.argv", BASE_ARGS + [
-        "--participants", str(p_file),
-        "--registration", str(tmp_path / "registration_2025.csv"),
-        "--output-dir", str(tmp_path),
-    ]):
+    with patch(
+        "sys.argv",
+        BASE_ARGS
+        + [
+            "--participants",
+            str(p_file),
+            "--registration",
+            str(tmp_path / "registration_2025.csv"),
+            "--output-dir",
+            str(tmp_path),
+        ],
+    ):
         with pytest.raises(SystemExit):
             main()
     os.chmod(p_file, 0o644)
@@ -275,13 +319,13 @@ def test_main_exits_when_header_only_csv(tmp_path, monkeypatch):
     assert exc.value.code == 0
 
 
-def test_main_verbose_flag(tmp_path, monkeypatch, capsys):
+def test_main_verbose_flag(tmp_path, monkeypatch, caplog):
     """Enables DEBUG logging when --verbose is passed, producing DEBUG output on stdout."""
     monkeypatch.chdir(tmp_path)
     write_csv_files(tmp_path)
     with patch("sys.argv", base_args(tmp_path) + ["--verbose"]):
         main()
-    assert "DEBUG" in capsys.readouterr().out
+    assert "DEBUG" in caplog.text
 
 
 def test_main_quiet_suppresses_info(tmp_path, monkeypatch, capsys):
@@ -319,7 +363,7 @@ def test_main_warns_and_exits_when_no_qualifying_attendees(tmp_path, monkeypatch
     assert not (tmp_path / "isaca_cpe_upload_ready.csv").exists()
 
 
-def test_main_warns_on_null_emails(tmp_path, monkeypatch, capsys):
+def test_main_warns_on_null_emails(tmp_path, monkeypatch, caplog):
     """Logs a warning when participant rows have missing email addresses."""
     monkeypatch.chdir(tmp_path)
     participants = (
@@ -329,9 +373,10 @@ def test_main_warns_on_null_emails(tmp_path, monkeypatch, capsys):
         + "Unknown,,60\n"
     )
     write_csv_files(tmp_path, participants=participants)
-    with patch("sys.argv", base_args(tmp_path)):
-        main()
-    assert "missing email" in capsys.readouterr().out
+    with caplog.at_level(logging.WARNING, logger="zoom_cpe"):
+        with patch("sys.argv", base_args(tmp_path)):
+            main()
+    assert "missing email" in caplog.text
 
 
 def test_main_explicit_input_files(tmp_path, monkeypatch):
@@ -342,9 +387,12 @@ def test_main_explicit_input_files(tmp_path, monkeypatch):
     output_dir.mkdir()
     write_csv_files(input_dir)
     args = BASE_ARGS + [
-        "--participants", str(input_dir / "participants_2025.csv"),
-        "--registration", str(input_dir / "registration_2025.csv"),
-        "--output-dir", str(output_dir),
+        "--participants",
+        str(input_dir / "participants_2025.csv"),
+        "--registration",
+        str(input_dir / "registration_2025.csv"),
+        "--output-dir",
+        str(output_dir),
     ]
     with patch("sys.argv", args):
         main()
@@ -359,12 +407,14 @@ def test_main_filters_non_numeric_id(tmp_path, monkeypatch):
         REGISTRATION_HEADER
         + "First Name,Last Name,Email,ISACA ID,Approval Status\n"
         + "Alice,Smith,alice@example.com,11111,Approved\n"
+        + "Carol,White,carol@example.com,33333,Approved\n"
         + "Dave,Brown,dave@example.com,NOTANID,Approved\n"
     )
     participants = (
         PARTICIPANTS_HEADER
         + "Name,Email,Duration (minutes)\n"
         + "Alice Smith,alice@example.com,90\n"
+        + "Carol White,carol@example.com,90\n"
         + "Dave Brown,dave@example.com,90\n"
     )
     write_csv_files(tmp_path, participants=participants, registration=registration)
@@ -401,13 +451,26 @@ def test_main_exits_when_end_before_start(tmp_path, monkeypatch):
     """Exits with an error when --end date is earlier than --start date."""
     monkeypatch.chdir(tmp_path)
     write_csv_files(tmp_path)
-    with patch("sys.argv", [
-        "zoom_cpe.py",
-        "--org", "Test Org", "--event", "Test Event",
-        "--start", "12/31/2025", "--end", "01/01/2025",
-        "--activity", "IPROED", "--method", "ONLINE",
-        "--output-dir", str(tmp_path),
-    ]):
+    with patch(
+        "sys.argv",
+        [
+            "zoom_cpe.py",
+            "--org",
+            "Test Org",
+            "--event",
+            "Test Event",
+            "--start",
+            "12/31/2025",
+            "--end",
+            "01/01/2025",
+            "--activity",
+            "IPROED",
+            "--method",
+            "ONLINE",
+            "--output-dir",
+            str(tmp_path),
+        ],
+    ):
         with pytest.raises(SystemExit):
             main()
 
