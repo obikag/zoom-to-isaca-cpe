@@ -7,18 +7,9 @@ import pandas as pd
 import pytest
 
 sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), "..")))
-from zoom_cpe import (
-    build_arg_parser,
-    find_file,
-    find_header_row,
-    is_id_column,
-    load_data,
-    main,
-    process,
-    validate_args,
-    validate_date,
-    validate_min_duration,
-)
+from zoom_cpe import (build_arg_parser, find_file, find_header_row,
+                      is_id_column, load_data, main, process, validate_args,
+                      validate_date, validate_min_duration)
 
 # --- find_file ---
 
@@ -61,6 +52,7 @@ def test_find_header_row_raises_when_not_found(tmp_path):
 def test_validate_date_valid():
     """Returns a datetime object for a correctly formatted MM/DD/YYYY string."""
     from datetime import datetime
+
     assert validate_date("01/15/2025") == datetime(2025, 1, 15)
 
 
@@ -109,36 +101,9 @@ def test_validate_min_duration_accepts_positive():
     assert validate_min_duration("50") == 50
 
 
-def test_validate_min_duration_default(tmp_path, monkeypatch):
-    """Omitting --min-duration defaults to 50, excluding Bob who attended only 30 minutes."""
-    monkeypatch.chdir(tmp_path)
-    write_csv_files(tmp_path)
-    with patch("sys.argv", base_args(tmp_path)):
-        main()
-    report = pd.read_csv(tmp_path / "final_attendance_cpe_report.csv")
-    assert "bob@example.com" not in report["Email"].values
-
-
-def test_main_exits_on_zero_min_duration(tmp_path, monkeypatch):
-    """Exits with an error when --min-duration is set to zero."""
-    monkeypatch.chdir(tmp_path)
-    write_csv_files(tmp_path)
-    with patch("sys.argv", base_args(tmp_path) + ["--min-duration", "0"]):
-        with pytest.raises(SystemExit):
-            main()
-
-
-def test_main_exits_on_negative_min_duration(tmp_path, monkeypatch):
-    """Exits with an error when --min-duration is set to a negative value."""
-    monkeypatch.chdir(tmp_path)
-    write_csv_files(tmp_path)
-    with patch("sys.argv", base_args(tmp_path) + ["--min-duration", "-10"]):
-        with pytest.raises(SystemExit):
-            main()
-
-
 # --- main (integration) ---
- = "ignored\nignored\nignored\n"
+
+PARTICIPANTS_HEADER = "ignored\nignored\nignored\n"
 REGISTRATION_HEADER = "ignored\nignored\nignored\nignored\nignored\n"
 
 PARTICIPANTS_CSV = (
@@ -169,6 +134,7 @@ BASE_ARGS = [
 
 
 def write_csv_files(tmp_path, participants=PARTICIPANTS_CSV, registration=REGISTRATION_CSV):
+    """Writes participants and registration CSV files to tmp_path."""
     (tmp_path / "participants_2025.csv").write_text(participants)
     (tmp_path / "registration_2025.csv").write_text(registration)
 
@@ -179,6 +145,7 @@ def base_args(tmp_path):
 
 
 def test_main_creates_output_files(tmp_path, monkeypatch):
+    """Both output CSVs are created in the output directory on a successful run."""
     monkeypatch.chdir(tmp_path)
     write_csv_files(tmp_path)
     with patch("sys.argv", base_args(tmp_path)):
@@ -188,7 +155,7 @@ def test_main_creates_output_files(tmp_path, monkeypatch):
 
 
 def test_main_filters_short_duration(tmp_path, monkeypatch):
-    """Bob attended only 30 minutes and should be excluded."""
+    """Attendees below the minimum duration threshold are excluded from output."""
     monkeypatch.chdir(tmp_path)
     write_csv_files(tmp_path)
     with patch("sys.argv", base_args(tmp_path)):
@@ -198,7 +165,7 @@ def test_main_filters_short_duration(tmp_path, monkeypatch):
 
 
 def test_main_cpe_calculation(tmp_path, monkeypatch):
-    """Alice (90 min) => 1 CPE, Carol (60 min) => 1 CPE."""
+    """CPE hours are calculated by flooring total minutes to the nearest duration block."""
     monkeypatch.chdir(tmp_path)
     write_csv_files(tmp_path)
     with patch("sys.argv", base_args(tmp_path)):
@@ -211,6 +178,7 @@ def test_main_cpe_calculation(tmp_path, monkeypatch):
 
 
 def test_main_upload_file_columns(tmp_path, monkeypatch):
+    """The ISACA upload file contains exactly the required columns in the correct order."""
     monkeypatch.chdir(tmp_path)
     write_csv_files(tmp_path)
     with patch("sys.argv", base_args(tmp_path)):
@@ -226,6 +194,7 @@ def test_main_upload_file_columns(tmp_path, monkeypatch):
 
 
 def test_main_exits_when_files_missing(tmp_path, monkeypatch):
+    """Exits with an error when no participants or registration CSVs are found."""
     monkeypatch.chdir(tmp_path)
     with patch("sys.argv", base_args(tmp_path)):
         with pytest.raises(SystemExit):
@@ -234,6 +203,7 @@ def test_main_exits_when_files_missing(tmp_path, monkeypatch):
 
 @pytest.mark.skipif(sys.platform == "win32", reason="chmod read-only not reliable on Windows")
 def test_main_exits_when_output_dir_not_writable(tmp_path, monkeypatch):
+    """Exits with an error when the output directory is not writable."""
     monkeypatch.chdir(tmp_path)
     write_csv_files(tmp_path)
     read_only_dir = tmp_path / "readonly"
@@ -242,10 +212,11 @@ def test_main_exits_when_output_dir_not_writable(tmp_path, monkeypatch):
     with patch("sys.argv", BASE_ARGS + ["--output-dir", str(read_only_dir)]):
         with pytest.raises(SystemExit):
             main()
-    os.chmod(read_only_dir, 0o755)  # restore so tmp_path cleanup succeeds
+    os.chmod(read_only_dir, 0o755)
 
 
 def test_main_exits_when_output_dir_missing(tmp_path, monkeypatch):
+    """Exits with an error when the specified output directory does not exist."""
     monkeypatch.chdir(tmp_path)
     write_csv_files(tmp_path)
     with patch("sys.argv", BASE_ARGS + ["--output-dir", str(tmp_path / "nonexistent")]):
@@ -254,6 +225,7 @@ def test_main_exits_when_output_dir_missing(tmp_path, monkeypatch):
 
 
 def test_main_exits_when_participants_file_not_found(tmp_path, monkeypatch):
+    """Exits with an error when the explicitly provided participants file does not exist."""
     monkeypatch.chdir(tmp_path)
     write_csv_files(tmp_path)
     with patch("sys.argv", BASE_ARGS + [
@@ -266,7 +238,7 @@ def test_main_exits_when_participants_file_not_found(tmp_path, monkeypatch):
 
 
 def test_main_warns_on_large_file(tmp_path, monkeypatch, capsys):
-    """A participants file over 50 MB should trigger a size warning."""
+    """Logs a warning when an input file exceeds 50 MB."""
     monkeypatch.chdir(tmp_path)
     write_csv_files(tmp_path)
     with patch("os.path.getsize", return_value=60 * 1024 * 1024):
@@ -277,6 +249,7 @@ def test_main_warns_on_large_file(tmp_path, monkeypatch, capsys):
 
 @pytest.mark.skipif(sys.platform == "win32", reason="chmod read-only not reliable on Windows")
 def test_main_exits_when_participants_file_not_readable(tmp_path, monkeypatch):
+    """Exits with an error when the participants file exists but cannot be read."""
     monkeypatch.chdir(tmp_path)
     write_csv_files(tmp_path)
     p_file = tmp_path / "participants_2025.csv"
@@ -292,7 +265,7 @@ def test_main_exits_when_participants_file_not_readable(tmp_path, monkeypatch):
 
 
 def test_main_exits_when_header_only_csv(tmp_path, monkeypatch):
-    """A CSV with a valid header but no data rows should produce no qualifying attendees."""
+    """Exits with code 0 when the participants CSV has a header but no data rows."""
     monkeypatch.chdir(tmp_path)
     participants = PARTICIPANTS_HEADER + "Name,Email,Duration (minutes)\n"
     write_csv_files(tmp_path, participants=participants)
@@ -303,6 +276,7 @@ def test_main_exits_when_header_only_csv(tmp_path, monkeypatch):
 
 
 def test_main_verbose_flag(tmp_path, monkeypatch, capsys):
+    """Enables DEBUG logging when --verbose is passed, producing DEBUG output on stdout."""
     monkeypatch.chdir(tmp_path)
     write_csv_files(tmp_path)
     with patch("sys.argv", base_args(tmp_path) + ["--verbose"]):
@@ -311,6 +285,7 @@ def test_main_verbose_flag(tmp_path, monkeypatch, capsys):
 
 
 def test_main_quiet_suppresses_info(tmp_path, monkeypatch, capsys):
+    """Suppresses all stdout output when --quiet is passed."""
     monkeypatch.chdir(tmp_path)
     write_csv_files(tmp_path)
     with patch("sys.argv", base_args(tmp_path) + ["--quiet"]):
@@ -319,6 +294,7 @@ def test_main_quiet_suppresses_info(tmp_path, monkeypatch, capsys):
 
 
 def test_main_verbose_and_quiet_are_mutually_exclusive(tmp_path, monkeypatch):
+    """Exits with an error when both --verbose and --quiet are provided."""
     monkeypatch.chdir(tmp_path)
     write_csv_files(tmp_path)
     with patch("sys.argv", base_args(tmp_path) + ["--verbose", "--quiet"]):
@@ -327,7 +303,7 @@ def test_main_verbose_and_quiet_are_mutually_exclusive(tmp_path, monkeypatch):
 
 
 def test_main_warns_and_exits_when_no_qualifying_attendees(tmp_path, monkeypatch):
-    """All attendees below min duration — no output files should be written."""
+    """Exits with code 0 and writes no output files when no attendees meet the minimum duration."""
     monkeypatch.chdir(tmp_path)
     participants = (
         PARTICIPANTS_HEADER
@@ -344,7 +320,7 @@ def test_main_warns_and_exits_when_no_qualifying_attendees(tmp_path, monkeypatch
 
 
 def test_main_warns_on_null_emails(tmp_path, monkeypatch, capsys):
-    """Participants with missing emails should trigger a warning."""
+    """Logs a warning when participant rows have missing email addresses."""
     monkeypatch.chdir(tmp_path)
     participants = (
         PARTICIPANTS_HEADER
@@ -359,7 +335,7 @@ def test_main_warns_on_null_emails(tmp_path, monkeypatch, capsys):
 
 
 def test_main_explicit_input_files(tmp_path, monkeypatch):
-    """Explicit --participants and --registration paths should be used instead of auto-detection."""
+    """Uses explicitly provided --participants and --registration paths instead of auto-detection."""
     input_dir = tmp_path / "inputs"
     input_dir.mkdir()
     output_dir = tmp_path / "outputs"
@@ -377,7 +353,7 @@ def test_main_explicit_input_files(tmp_path, monkeypatch):
 
 
 def test_main_filters_non_numeric_id(tmp_path, monkeypatch):
-    """Attendees with non-numeric ISACA IDs should be excluded from output."""
+    """Attendees with non-numeric ISACA IDs are excluded from both output files."""
     monkeypatch.chdir(tmp_path)
     registration = (
         REGISTRATION_HEADER
@@ -400,7 +376,7 @@ def test_main_filters_non_numeric_id(tmp_path, monkeypatch):
 
 
 def test_main_sums_duration_for_rejoined_attendee(tmp_path, monkeypatch):
-    """An attendee who rejoins should have their durations summed before filtering."""
+    """Duration is summed across multiple rows for an attendee who rejoined the session."""
     monkeypatch.chdir(tmp_path)
     participants = (
         PARTICIPANTS_HEADER
@@ -422,6 +398,7 @@ def test_main_sums_duration_for_rejoined_attendee(tmp_path, monkeypatch):
 
 
 def test_main_exits_when_end_before_start(tmp_path, monkeypatch):
+    """Exits with an error when --end date is earlier than --start date."""
     monkeypatch.chdir(tmp_path)
     write_csv_files(tmp_path)
     with patch("sys.argv", [
@@ -436,6 +413,7 @@ def test_main_exits_when_end_before_start(tmp_path, monkeypatch):
 
 
 def test_main_exits_on_invalid_activity(tmp_path, monkeypatch):
+    """Exits with an error when --activity is not one of the accepted values."""
     monkeypatch.chdir(tmp_path)
     write_csv_files(tmp_path)
     bad_args = base_args(tmp_path).copy()
@@ -446,6 +424,7 @@ def test_main_exits_on_invalid_activity(tmp_path, monkeypatch):
 
 
 def test_main_exits_on_invalid_method(tmp_path, monkeypatch):
+    """Exits with an error when --method is not one of the accepted values."""
     monkeypatch.chdir(tmp_path)
     write_csv_files(tmp_path)
     bad_args = base_args(tmp_path).copy()
@@ -456,10 +435,38 @@ def test_main_exits_on_invalid_method(tmp_path, monkeypatch):
 
 
 def test_main_custom_min_duration(tmp_path, monkeypatch):
-    """With --min-duration 30, Bob (30 min) should now qualify."""
+    """Attendees meeting a custom --min-duration threshold are included in output."""
     monkeypatch.chdir(tmp_path)
     write_csv_files(tmp_path)
     with patch("sys.argv", base_args(tmp_path) + ["--min-duration", "30"]):
         main()
     report = pd.read_csv(tmp_path / "final_attendance_cpe_report.csv")
     assert "bob@example.com" in report["Email"].values
+
+
+def test_validate_min_duration_default(tmp_path, monkeypatch):
+    """Omitting --min-duration defaults to 50, excluding Bob who attended only 30 minutes."""
+    monkeypatch.chdir(tmp_path)
+    write_csv_files(tmp_path)
+    with patch("sys.argv", base_args(tmp_path)):
+        main()
+    report = pd.read_csv(tmp_path / "final_attendance_cpe_report.csv")
+    assert "bob@example.com" not in report["Email"].values
+
+
+def test_main_exits_on_zero_min_duration(tmp_path, monkeypatch):
+    """Exits with an error when --min-duration is set to zero."""
+    monkeypatch.chdir(tmp_path)
+    write_csv_files(tmp_path)
+    with patch("sys.argv", base_args(tmp_path) + ["--min-duration", "0"]):
+        with pytest.raises(SystemExit):
+            main()
+
+
+def test_main_exits_on_negative_min_duration(tmp_path, monkeypatch):
+    """Exits with an error when --min-duration is set to a negative value."""
+    monkeypatch.chdir(tmp_path)
+    write_csv_files(tmp_path)
+    with patch("sys.argv", base_args(tmp_path) + ["--min-duration", "-10"]):
+        with pytest.raises(SystemExit):
+            main()
