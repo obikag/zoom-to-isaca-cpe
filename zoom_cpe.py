@@ -50,6 +50,22 @@ def is_id_column(series):
     return (numeric_count / len(vals)) > 0.5
 
 
+def validate_min_duration(value):
+    """Parses and validates --min-duration as a positive integer greater than zero.
+    Raises argparse.ArgumentTypeError if the value is not a positive integer."""
+    try:
+        ivalue = int(value)
+    except ValueError:
+        raise argparse.ArgumentTypeError(
+            f"Invalid value '{value}': must be a positive integer."
+        )
+    if ivalue <= 0:
+        raise argparse.ArgumentTypeError(
+            f"--min-duration must be greater than zero, got {ivalue}."
+        )
+    return ivalue
+
+
 def validate_date(value):
     """Parses and returns a datetime from a MM/DD/YYYY string. Raises
     argparse.ArgumentTypeError if the format is invalid."""
@@ -61,15 +77,19 @@ def validate_date(value):
         )
 
 
-def main():
-    # Parse and validate all CLI arguments before any file I/O
+def build_arg_parser():
+    """Builds and returns the argument parser with all CLI arguments defined."""
     parser = argparse.ArgumentParser(
         description="Process Zoom reports and generate ISACA CPE upload files."
     )
     parser.add_argument("--org", required=True, help="Sponsoring Organization Name")
     parser.add_argument("--event", required=True, help="Event Name")
-    parser.add_argument("--start", required=True, type=validate_date, help="Event Start Date (MM/DD/YYYY)")
-    parser.add_argument("--end", required=True, type=validate_date, help="Event End Date (MM/DD/YYYY)")
+    parser.add_argument(
+        "--start", required=True, type=validate_date, help="Event Start Date (MM/DD/YYYY)"
+    )
+    parser.add_argument(
+        "--end", required=True, type=validate_date, help="Event End Date (MM/DD/YYYY)"
+    )
     parser.add_argument(
         "--activity",
         required=True,
@@ -84,7 +104,7 @@ def main():
     )
     parser.add_argument(
         "--min-duration",
-        type=int,
+        type=validate_min_duration,
         default=50,
         help="Minimum attendance duration in minutes to qualify for CPE (default: 50)",
     )
@@ -101,7 +121,6 @@ def main():
         required=True,
         help="Directory where output CSV files will be written",
     )
-
     log_group = parser.add_mutually_exclusive_group()
     log_group.add_argument(
         "--verbose", action="store_true", help="Enable verbose (DEBUG) logging"
@@ -109,19 +128,16 @@ def main():
     log_group.add_argument(
         "--quiet", action="store_true", help="Suppress all output except errors"
     )
+    return parser
 
-    args = parser.parse_args()
 
-    if args.verbose:
-        logging.getLogger().setLevel(logging.DEBUG)
-    elif args.quiet:
-        logging.getLogger().setLevel(logging.ERROR)
-
+def validate_args(args):
+    """Validates parsed arguments and resolved file paths. Logs an error and
+    exits with code 1 on any validation failure."""
     if args.end < args.start:
         logger.error("--end date cannot be before --start date.")
         sys.exit(1)
 
-    # Validate output directory exists and is writable
     if not os.path.isdir(args.output_dir):
         logger.error(f"Output directory does not exist: '{args.output_dir}'")
         sys.exit(1)
@@ -129,7 +145,6 @@ def main():
         logger.error(f"Output directory is not writable: '{args.output_dir}'")
         sys.exit(1)
 
-    # Use explicit paths if provided, otherwise auto-detect from the current directory
     p_file = args.participants or find_file("participants*.csv")
     r_file = args.registration or find_file("registration*.csv")
 
@@ -137,7 +152,6 @@ def main():
         logger.error("Missing required participants or registration CSV files.")
         sys.exit(1)
 
-    # Validate input files exist and are readable
     for label, path in (("participants", p_file), ("registration", r_file)):
         if not os.path.isfile(path):
             logger.error(f"{label} file not found: '{path}'")
@@ -147,9 +161,17 @@ def main():
             sys.exit(1)
         size_mb = os.path.getsize(path) / (1024 * 1024)
         if size_mb > 50:
-            logger.warning(f"{label} file is large ({size_mb:.1f} MB) and may use significant memory.")
+            logger.warning(
+                f"{label} file is large ({size_mb:.1f} MB) and may use significant memory."
+            )
 
-    # Dynamically detect the header row to handle Zoom export format changes
+    return p_file, r_file
+
+
+def load_data(p_file, r_file):
+    """Loads participants and registration CSVs, dynamically detecting the header
+    row in each file. Returns (participants_df, registration_df, id_col_name) or
+    exits with code 1 if the header or ID column cannot be found."""
     try:
         p_skip = find_header_row(p_file, ["email", "duration (minutes)"])
         r_skip = find_header_row(r_file, ["first name", "last name", "email"])
@@ -160,30 +182,29 @@ def main():
     participants_df = pd.read_csv(p_file, skiprows=p_skip)
     registration_df = pd.read_csv(r_file, skiprows=r_skip)
 
-    # Identify the ISACA member ID column by finding the first non-excluded column
-    # whose values are predominantly numeric
     exclude_cols = {
         "first name", "last name", "email", "approval status",
         "registration time", "industry", "organization",
     }
     potential_cols = [c for c in registration_df.columns if c.lower() not in exclude_cols]
 
-    id_col_name = None
-    for col in potential_cols:
-        if is_id_column(registration_df[col]):
-            id_col_name = col
-            break
-
+    id_col_name = next(
+        (col for col in potential_cols if is_id_column(registration_df[col])), None
+    )
     if not id_col_name:
         logger.error("Could not identify an ID column with numeric data.")
         sys.exit(1)
 
-    # Normalise emails and warn about any rows dropped due to missing email
+    return participants_df, registration_df, id_col_name
+
+
+def process(participants_df, registration_df, id_col_name, args):
+    """Merges, filters, and calculates CPE for attendees. Returns
+    (report_df, upload_df) or exits with code 0 if no qualifying attendees remain."""
     null_emails = participants_df["Email"].isna().sum()
     if null_emails:
         logger.warning(f"{null_emails} participant row(s) dropped due to missing email.")
 
-    # Sum duration across multiple rows for the same attendee (e.g. rejoined sessions)
     participants_summary = (
         participants_df.groupby("Email")["Duration (minutes)"].sum().reset_index()
     )
@@ -192,24 +213,19 @@ def main():
 
     merged_df = pd.merge(participants_summary, registration_df, on="Email", how="inner")
 
-    # Filter out attendees below the minimum duration threshold
     df_filtered = merged_df[merged_df["Duration (minutes)"] >= args.min_duration].copy()
-
-    # Filter out registrants with missing or non-numeric ISACA member IDs
     df_filtered = df_filtered.dropna(subset=[id_col_name])
     df_filtered[id_col_name] = df_filtered[id_col_name].astype(str).str.strip()
     final_df = df_filtered[df_filtered[id_col_name].str.match(r"^\d+$")].copy()
 
-    # Calculate CPE hours by flooring total minutes to the nearest 50-minute block
-    # e.g. 90 min => 1 CPE, 100 min => 2 CPE
     final_df["CPE"] = (final_df["Duration (minutes)"] // args.min_duration).astype(int)
 
-    # Warn and exit if no attendees remain after filtering
     if final_df.empty:
-        logger.warning("No qualifying attendees found after filtering. Output files will not be written.")
+        logger.warning(
+            "No qualifying attendees found after filtering. Output files will not be written."
+        )
         sys.exit(0)
 
-    # Build and write the internal attendance report sorted by attendee name
     final_df["Report_Name"] = (
         final_df["Last Name"].str.strip() + ", " + final_df["First Name"].str.strip()
     )
@@ -218,10 +234,7 @@ def main():
     ].copy()
     report_df.columns = ["ID", "Name", "Email", "Duration", "CPE"]
     report_df = report_df.sort_values(by="Name").reset_index(drop=True)
-    report_path = os.path.join(args.output_dir, "final_attendance_cpe_report.csv")
-    report_df.to_csv(report_path, index=False)
 
-    # Build and write the ISACA CPE upload file sorted by last name
     start_str = args.start.strftime("%m/%d/%Y")
     end_str = args.end.strftime("%m/%d/%Y")
     upload_df = pd.DataFrame(
@@ -241,13 +254,34 @@ def main():
         }
     )
     upload_df = upload_df.sort_values(by=["LAST_NAME", "FIRST_NAME"]).reset_index(drop=True)
+
+    return report_df, upload_df
+
+
+def main():
+    """Entry point. Parses arguments, validates inputs, loads data, processes
+    attendees, and writes output files to the specified output directory."""
+    parser = build_arg_parser()
+    args = parser.parse_args()
+
+    if args.verbose:
+        logging.getLogger().setLevel(logging.DEBUG)
+        logger.debug("Verbose logging enabled.")
+    elif args.quiet:
+        logging.getLogger().setLevel(logging.ERROR)
+
+    p_file, r_file = validate_args(args)
+    participants_df, registration_df, id_col_name = load_data(p_file, r_file)
+    report_df, upload_df = process(participants_df, registration_df, id_col_name, args)
+
+    report_path = os.path.join(args.output_dir, "final_attendance_cpe_report.csv")
     upload_path = os.path.join(args.output_dir, "isaca_cpe_upload_ready.csv")
+    report_df.to_csv(report_path, index=False)
     upload_df.to_csv(upload_path, index=False)
 
     logger.info("Success!")
     logger.info(f"- Internal report: '{report_path}'")
     logger.info(f"- ISACA Upload file: '{upload_path}'")
-
 
 
 if __name__ == "__main__":

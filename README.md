@@ -1,6 +1,6 @@
 # zoom-to-isaca-cpe
 
-![CI](https://github.com/<your-username>/zoom-to-isaca-cpe/actions/workflows/ci.yml/badge.svg)
+![CI](https://github.com/obikag/zoom-to-isaca-cpe/actions/workflows/ci.yml/badge.svg)
 
 A command-line tool that processes Zoom attendance and registration reports to generate ISACA CPE upload files.
 
@@ -98,6 +98,13 @@ Both files are written to `--output-dir`. If no qualifying attendees remain afte
 | CPE | CPE hours earned |
 
 **`isaca_cpe_upload_ready.csv`** — Formatted for direct upload to the ISACA CPE portal, sorted by last name.
+
+## Notes
+
+- Email addresses are normalised to lowercase before matching, so `Alice@Example.com` in the participants file will correctly match `alice@example.com` in the registration file
+- Input files larger than 50 MB will trigger a warning — the script will still run but may use significant memory
+- If `--org` or `--event` values contain commas or quotes, pandas will handle quoting automatically in the output CSV
+- Input file validation (existence and readability) is performed before processing begins. There is a small window between this check and the actual read where the file could be modified or removed by another process, though this is unlikely in normal usage
 
 ## Running Tests
 

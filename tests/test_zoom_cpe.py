@@ -1,3 +1,4 @@
+import argparse
 import os
 import sys
 from unittest.mock import patch
@@ -6,7 +7,18 @@ import pandas as pd
 import pytest
 
 sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), "..")))
-from zoom_cpe import find_file, find_header_row, is_id_column, main, validate_date
+from zoom_cpe import (
+    build_arg_parser,
+    find_file,
+    find_header_row,
+    is_id_column,
+    load_data,
+    main,
+    process,
+    validate_args,
+    validate_date,
+    validate_min_duration,
+)
 
 # --- find_file ---
 
@@ -69,7 +81,51 @@ def test_is_id_column(values, expected):
     assert is_id_column(series) == expected
 
 
-# --- main (integration) ---
+# --- validate_min_duration ---
+
+
+@pytest.mark.parametrize("value", ["0", "-1", "-100"])
+def test_validate_min_duration_rejects_non_positive(value):
+    with pytest.raises(argparse.ArgumentTypeError):
+        validate_min_duration(value)
+
+
+def test_validate_min_duration_rejects_non_integer():
+    with pytest.raises(argparse.ArgumentTypeError):
+        validate_min_duration("abc")
+
+
+def test_validate_min_duration_accepts_positive():
+    assert validate_min_duration("50") == 50
+
+
+def test_validate_min_duration_default(tmp_path, monkeypatch):
+    """Omitting --min-duration should default to 50."""
+    monkeypatch.chdir(tmp_path)
+    write_csv_files(tmp_path)
+    with patch("sys.argv", base_args(tmp_path)):
+        main()
+    report = pd.read_csv(tmp_path / "final_attendance_cpe_report.csv")
+    # Bob (30 min) should be excluded under the 50-minute default
+    assert "bob@example.com" not in report["Email"].values
+
+
+def test_main_exits_on_zero_min_duration(tmp_path, monkeypatch):
+    monkeypatch.chdir(tmp_path)
+    write_csv_files(tmp_path)
+    with patch("sys.argv", base_args(tmp_path) + ["--min-duration", "0"]):
+        with pytest.raises(SystemExit):
+            main()
+
+
+def test_main_exits_on_negative_min_duration(tmp_path, monkeypatch):
+    monkeypatch.chdir(tmp_path)
+    write_csv_files(tmp_path)
+    with patch("sys.argv", base_args(tmp_path) + ["--min-duration", "-10"]):
+        with pytest.raises(SystemExit):
+            main()
+
+
 
 PARTICIPANTS_HEADER = "ignored\nignored\nignored\n"
 REGISTRATION_HEADER = "ignored\nignored\nignored\nignored\nignored\n"
@@ -198,6 +254,16 @@ def test_main_exits_when_participants_file_not_found(tmp_path, monkeypatch):
             main()
 
 
+def test_main_warns_on_large_file(tmp_path, monkeypatch, capsys):
+    """A participants file over 50 MB should trigger a size warning."""
+    monkeypatch.chdir(tmp_path)
+    write_csv_files(tmp_path)
+    with patch("os.path.getsize", return_value=60 * 1024 * 1024):
+        with patch("sys.argv", base_args(tmp_path)):
+            main()
+    assert "large" in capsys.readouterr().out
+
+
 @pytest.mark.skipif(sys.platform == "win32", reason="chmod read-only not reliable on Windows")
 def test_main_exits_when_participants_file_not_readable(tmp_path, monkeypatch):
     monkeypatch.chdir(tmp_path)
@@ -225,23 +291,20 @@ def test_main_exits_when_header_only_csv(tmp_path, monkeypatch):
     assert exc.value.code == 0
 
 
-def test_main_verbose_flag(tmp_path, monkeypatch, caplog):
+def test_main_verbose_flag(tmp_path, monkeypatch, capsys):
     monkeypatch.chdir(tmp_path)
     write_csv_files(tmp_path)
-    import logging
     with patch("sys.argv", base_args(tmp_path) + ["--verbose"]):
-        with caplog.at_level(logging.DEBUG):
-            main()
+        main()
+    assert "DEBUG" in capsys.readouterr().out
 
 
-def test_main_quiet_suppresses_info(tmp_path, monkeypatch, caplog):
+def test_main_quiet_suppresses_info(tmp_path, monkeypatch, capsys):
     monkeypatch.chdir(tmp_path)
     write_csv_files(tmp_path)
-    import logging
     with patch("sys.argv", base_args(tmp_path) + ["--quiet"]):
-        with caplog.at_level(logging.INFO, logger="zoom_cpe"):
-            main()
-    assert not any(r.levelno == logging.INFO for r in caplog.records)
+        main()
+    assert capsys.readouterr().out == ""
 
 
 def test_main_verbose_and_quiet_are_mutually_exclusive(tmp_path, monkeypatch):
@@ -269,7 +332,7 @@ def test_main_warns_and_exits_when_no_qualifying_attendees(tmp_path, monkeypatch
     assert not (tmp_path / "isaca_cpe_upload_ready.csv").exists()
 
 
-def test_main_warns_on_null_emails(tmp_path, monkeypatch, caplog):
+def test_main_warns_on_null_emails(tmp_path, monkeypatch, capsys):
     """Participants with missing emails should trigger a warning."""
     monkeypatch.chdir(tmp_path)
     participants = (
@@ -279,11 +342,9 @@ def test_main_warns_on_null_emails(tmp_path, monkeypatch, caplog):
         + "Unknown,,60\n"
     )
     write_csv_files(tmp_path, participants=participants)
-    import logging
     with patch("sys.argv", base_args(tmp_path)):
-        with caplog.at_level(logging.WARNING, logger="zoom_cpe"):
-            main()
-    assert any("missing email" in r.message for r in caplog.records)
+        main()
+    assert "missing email" in capsys.readouterr().out
 
 
 def test_main_explicit_input_files(tmp_path, monkeypatch):
